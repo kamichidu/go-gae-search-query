@@ -1,0 +1,58 @@
+package searchquery
+
+import "time"
+import "github.com/kamichidu/go-gae-search-query/ast"
+
+type Query Peg {
+    astBuilder
+}
+
+Query <- Spacing Exprs { p.reduceAnd() } Spacing !. { p.finalize() }
+
+Exprs <- Expr ( Spacing 'AND' Spacing Expr
+              / Spacing 'OR'  Spacing Expr { p.pushOr() }
+              / Spacing       Expr )*
+
+Expr <- Property Spacing ( Operator Spacing Value { p.pushOperatorExpr() }
+                         / ':'      Spacing Expr  { p.pushColonExpr()    } )
+      / '(' { p.pushNewState() } Spacing Exprs { p.reduceAnd() } Spacing ')' { p.popNewState() }
+      / 'NOT' Spacing Expr { p.pushNot() }
+      / Value { p.pushKeywordExpr() }
+
+Property <- <[a-zA-Z] [_a-zA-Z0-9]* ( '.' [a-zA-Z] [_a-zA-Z0-9]* )*> { p.pushProperty(buffer[begin:end]) }
+
+Operator <- '='  { p.pushOperator(ast.OpEq)  }
+          / '!=' { p.pushOperator(ast.OpNeq) }
+          / '<>' { p.pushOperator(ast.OpNeq) }
+          / '<'  { p.pushOperator(ast.OpLt)  }
+          / '<=' { p.pushOperator(ast.OpLe) }
+          / '>'  { p.pushOperator(ast.OpGt)  }
+          / '>=' { p.pushOperator(ast.OpGe) }
+
+Value <- Time
+       / Float
+       / Integer
+       / Bool
+       / String
+
+Time <- <[1-9] [0-9] [0-9] [0-9] '-' [0-9] [0-9] '-' [0-9] [0-9] 'T' [0-9] [0-9] ':' [0-9] [0-9] ':' [0-9] [0-9] 'Z'> { p.pushTimeValue(time.RFC3339, buffer[begin:end]) }
+      / <[1-9] [0-9] [0-9] [0-9] '-' [0-9] [0-9] '-' [0-9] [0-9]> { p.pushTimeValue("2006-01-02", buffer[begin:end]) }
+
+String <- BareString
+        / QuotedString
+
+BareString <- <[a-zA-Z] [a-zA-Z0-9]*> { p.pushStringValue(buffer[begin:end]) }
+
+QuotedString <- '"' <[^"]*> '"' { p.pushStringValue(buffer[begin:end]) }
+
+Integer <- <[1-9] [0-9]*> { p.pushIntegerValue(buffer[begin:end]) }
+
+Float <- <[1-9] [0-9]* '.' [0-9]+> { p.pushFloatValue(buffer[begin:end]) }
+
+Bool <- 'true'  { p.pushBoolValue(true) }
+      / 'false' { p.pushBoolValue(false) }
+
+Spacing   <- ( Space / Comment )*
+Comment   <- '#' ( !EndOfLine . )*
+Space     <- '\0x20' / '\0x9' / EndOfLine
+EndOfLine <- '\0xd\0xa' / '\0xa' / '\0xd'
